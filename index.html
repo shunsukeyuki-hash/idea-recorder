@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>アイデア4トラック</title>
+<style>
+/* レイアウト: 上に再生操作、中央に4トラック、下に遅延測定と書き出し */
+:root{
+  --bg:#0f1719; --panel:#172326; --line:#27373b; --fg:#e8e4d8; --sub:#8fa0a0;
+  --rec:#ff5a4d; --play:#4fd1b8; --wave:#7fb8ad;
+  --font:system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--font);
+  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+main{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font-size:20px;margin:0;letter-spacing:.04em}
+.lead{color:var(--sub);font-size:13px;margin:4px 0 0}
+button{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;min-height:44px;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:2px solid var(--play);outline-offset:2px}
+button:disabled{opacity:.4;cursor:default}
+.transport{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.transport .time{font-variant-numeric:tabular-nums;font-size:22px;min-width:5.5em}
+.play{background:var(--play);color:#06231e;border-color:var(--play);font-weight:700}
+.trk{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.trk.rec{border-color:var(--rec)}
+.hd{display:flex;gap:10px;align-items:center}
+.n{width:28px;height:28px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;font-size:13px;color:var(--sub);flex:none}
+.trk.rec .n{background:var(--rec);color:#fff;border-color:var(--rec)}
+canvas{flex:1;min-width:0;height:48px;width:100%;background:var(--bg);border-radius:6px}
+.ctl{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ctl label{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--sub);min-width:0}
+.ctl input[type=range]{width:100%;accent-color:var(--play)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row button{flex:1;min-width:0}
+.recbtn{border-color:var(--rec);color:var(--rec)}
+.trk.rec .recbtn{background:var(--rec);color:#fff}
+.box{border-top:1px solid var(--line);padding-top:16px;display:flex;flex-direction:column;gap:8px}
+.box h2{font-size:14px;margin:0}
+.note{font-size:12px;color:var(--sub);margin:0}
+#msg{min-height:1.5em;font-size:13px;color:var(--play)}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>アイデア4トラック</h1>
+    <p class="lead">ひな形：重ね録りと遅延の確認用。イヤホン（有線がおすすめ）をつけて使います。</p>
+  </header>
+
+  <div class="transport">
+    <button class="play" id="play">▶ 再生</button>
+    <button id="stop">■ 停止</button>
+    <span class="time" id="time">0:00</span>
+  </div>
+
+  <div id="tracks" style="display:flex;flex-direction:column;gap:12px"></div>
+
+  <div class="box">
+    <h2>遅延の測定</h2>
+    <p class="note">端末のスピーカーからビープ音を鳴らし、マイクで拾って、録音のズレを自動で測ります。イヤホンは外し、静かな場所でスピーカーの音量を上げて行ってください。</p>
+    <div class="row">
+      <button id="measure">遅延を測る</button>
+      <span id="lat" style="align-self:center;font-variant-numeric:tabular-nums"></span>
+    </div>
+  </div>
+
+  <div class="box">
+    <h2>書き出し</h2>
+    <button id="export">4トラックをミックスして保存（WAV）</button>
+    <p class="note">この版は、閉じると録音が消えます。保存とGoogleドライブ連携は次の段階で付けます。</p>
+  </div>
+
+  <div id="msg" role="status"></div>
+</main>
+
+<script>
+const N = 4, MAX_SEC = 180;
+let ctx = null, stream = null, proc = null;
+let capture = null, recIdx = -1, recTimer = null;
+let sources = [], playEnd = 0, playT0 = 0, raf = 0, isPlaying = false;
+let latencyMs = 0;
+try { latencyMs = Number(localStorage.getItem('lat4') || 0) || 0; } catch (e) {}
+
+const tracks = Array.from({ length: N }, () => ({ buf: null, vol: 0.9, shift: 0, adj: 0, mute: false }));
+const $ = (s, r = document) => r.querySelector(s);
+const msg = t => { $('#msg').textContent = t || ''; };
+const fmt = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+
+/* ---------- 画面 ---------- */
+const wrap = $('#tracks');
+tracks.forEach((t, i) => {
+  const el = document.createElement('section');
+  el.className = 'trk'; el.id = 'trk' + i;
+  el.innerHTML =
+    '<div class="hd"><span class="n">' + (i + 1) + '</span><canvas></canvas></div>' +
+    '<div class="ctl">' +
+      '<label>音量<input type="range" min="0" max="1" step="0.01" value="' + t.vol + '" data-k="vol"></label>' +
+      '<label>ズレ補正 <output data-o>0 ms</output><input type="range" min="-300" max="300" step="5" value="0" data-k="adj"></label>' +
+    '</div>' +
+    '<div class="row">' +
+      '<button class="recbtn" data-a="rec">● 録音</button>' +
+      '<button data-a="mute">ミュート</button>' +
+      '<button data-a="clr">消去</button>' +
+    '</div>';
+  wrap.appendChild(el);
+  el.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => {
+    if (inp.dataset.k === 'vol') t.vol = Number(inp.value);
+    else { t.adj = Number(inp.value); $('[data-o]', el).textContent = t.adj + ' ms'; }
+    msg('音量やズレの変更は、次の再生から反映されます。');
+  }));
+  let clrTimer = 0;
+  el.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    const a = b.dataset.a;
+    if (a === 'rec') { recIdx === i ? stopRec() : startRec(i); }
+    if (a === 'mute') { t.mute = !t.mute; b.textContent = t.mute ? 'ミュート中' : 'ミュート'; b.style.borderColor = t.mute ? 'var(--rec)' : ''; }
+    if (a === 'clr') {
+      if (b.dataset.armed) { t.buf = null; delete b.dataset.armed; b.textContent = '消去'; drawWave(i); clearTimeout(clrTimer); }
+      else { b.dataset.armed = '1'; b.textContent = 'もう一度で消去'; clrTimer = setTimeout(() => { delete b.dataset.armed; b.textContent = '消去'; }, 2000); }
+    }
+  });
+  drawWave(i);
+});
+
+function drawWave(i) {
+  const c = $('#trk' + i + ' canvas');
+  const w = c.clientWidth || 300, h = c.clientHeight || 48, dpr = window.devicePixelRatio || 1;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext('2d'); g.scale(dpr, dpr);
+  g.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  g.strokeStyle = css.getPropertyValue('--line'); g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
+  const buf = tracks[i].buf; if (!buf) return;
+  const d = buf.getChannelData(0), step = Math.max(1, Math.floor(d.length / w));
+  g.strokeStyle = css.getPropertyValue('--wave'); g.beginPath();
+  for (let x = 0; x < w; x++) {
+    let mx = 0; const s = x * step;
+    for (let k = 0; k < step; k += Math.max(1, step >> 5)) mx = Math.max(mx, Math.abs(d[s + k] || 0));
+    g.moveTo(x + .5, h / 2 - mx * h / 2); g.lineTo(x + .5, h / 2 + mx * h / 2);
+  }
+  g.stroke();
+}
+window.addEventListener('resize', () => tracks.forEach((_, i) => drawWave(i)));
+$('#lat').textContent = latencyMs ? '測定済み：' + Math.round(latencyMs) + ' ms' : '未測定';
+
+/* ---------- 音声 ---------- */
+async function ensureAudio() {
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+  if (ctx.state !== 'running') await ctx.resume();
+}
+async function ensureMic() {
+  await ensureAudio();
+  if (stream) return;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+  } catch (e) {
+    msg('マイクを使えませんでした。ブラウザのマイク許可と、https（またはlocalhost）で開いているかを確認してください。');
+    throw e;
+  }
+  const src = ctx.createMediaStreamSource(stream);
+  proc = ctx.createScriptProcessor(2048, 1, 1);
+  proc.onaudioprocess = e => {
+    if (!capture) return;
+    capture.chunks.push({ t: e.playbackTime, d: new Float32Array(e.inputBuffer.getChannelData(0)) });
+  };
+  const silent = ctx.createGain(); silent.gain.value = 0;
+  src.connect(proc); proc.connect(silent); silent.connect(ctx.destination);
+}
+
+function toBuffer(cap, seconds) {
+  const sr = ctx.sampleRate, total = Math.max(1, Math.round(seconds * sr));
+  const out = new Float32Array(total);
+  if (!cap.chunks.length) return null;
+  let pos = Math.round((cap.chunks[0].t - cap.t0) * sr);
+  for (const c of cap.chunks) {
+    const from = pos < 0 ? -pos : 0;
+    if (from < c.d.length && pos + from < total) out.set(c.d.subarray(from, Math.min(c.d.length, total - pos)), pos + from);
+    pos += c.d.length;
+  }
+  const buf = ctx.createBuffer(1, total, sr);
+  buf.copyToChannel(out, 0);
+  return buf;
+}
+
+function schedule(t0, skip) {
+  let end = 0;
+  tracks.forEach((t, k) => {
+    if (k === skip || !t.buf || t.mute) return;
+    const eff = (t.shift + t.adj) / 1000;
+    const s = ctx.createBufferSource(); s.buffer = t.buf;
+    const g = ctx.createGain(); g.gain.value = t.vol;
+    s.connect(g); g.connect(ctx.destination);
+    if (eff >= 0) { if (eff >= t.buf.duration) return; s.start(t0, eff); end = Math.max(end, t.buf.duration - eff); }
+    else { s.start(t0 - eff); end = Math.max(end, t.buf.duration - eff); }
+    sources.push(s);
+  });
+  return end;
+}
+function stopSources() { sources.forEach(s => { try { s.stop(); } catch (e) {} }); sources = []; }
+
+/* ---------- 再生 ---------- */
+async function play() {
+  if (recIdx >= 0) return;
+  await ensureAudio(); stopAll();
+  playT0 = ctx.currentTime + 0.1;
+  playEnd = schedule(playT0, -1);
+  if (!playEnd) { msg('再生するトラックがありません。'); return; }
+  isPlaying = true; msg('');
+  tick();
+}
+function stopAll() {
+  stopSources(); isPlaying = false; cancelAnimationFrame(raf);
+  $('#time').textContent = '0:00';
+}
+function tick() {
+  if (!isPlaying) return;
+  const el = Math.max(0, ctx.currentTime - playT0);
+  $('#time').textContent = fmt(el);
+  if (el >= playEnd) { stopAll(); return; }
+  raf = requestAnimationFrame(tick);
+}
+$('#play').addEventListener('click', play);
+$('#stop').addEventListener('click', () => { if (recIdx >= 0) stopRec(); else stopAll(); });
+
+/* ---------- 録音 ---------- */
+async function startRec(i) {
+  if (recIdx >= 0) stopRec();
+  try { await ensureMic(); } catch (e) { return; }
+  stopAll();
+  const t0 = ctx.currentTime + 0.15;
+  schedule(t0, i);
+  capture = { t0, chunks: [] }; recIdx = i;
+  const row = $('#trk' + i); row.classList.add('rec'); $('.recbtn', row).textContent = '■ 停止';
+  recTimer = setTimeout(stopRec, MAX_SEC * 1000);
+  isPlaying = true; playT0 = t0; playEnd = MAX_SEC; tick();
+  msg('録音中（最大3分）。他のトラックを聴きながら録れます。');
+}
+function stopRec() {
+  if (recIdx < 0) return;
+  const i = recIdx, cap = capture;
+  capture = null; recIdx = -1; clearTimeout(recTimer);
+  stopSources(); isPlaying = false; cancelAnimationFrame(raf);
+  const secs = Math.max(0, ctx.currentTime - cap.t0);
+  const buf = secs > 0.2 ? toBuffer(cap, secs) : null;
+  if (buf) { tracks[i].buf = buf; tracks[i].shift = latencyMs; tracks[i].adj = 0; }
+  const row = $('#trk' + i); row.classList.remove('rec'); $('.recbtn', row).textContent = '● 録音';
+  const sl = $('input[data-k="adj"]', row); sl.value = 0; $('[data-o]', row).textContent = '0 ms';
+  drawWave(i); $('#time').textContent = fmt(secs);
+  msg(buf ? 'トラック' + (i + 1) + 'を録音しました。▶ 再生で重ねて確認できます。' : '録音が短すぎたので、保存しませんでした。');
+}
+
+/* ---------- 遅延測定 ---------- */
+$('#measure').addEventListener('click', async () => {
+  if (recIdx >= 0) return;
+  try { await ensureMic(); } catch (e) { return; }
+  stopAll(); msg('測定中…スピーカーから音が鳴ります。');
+  const t0 = ctx.currentTime + 0.15, beepAt = 0.3;
+  capture = { t0, chunks: [] };
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.frequency.value = 1000; g.gain.setValueAtTime(0, t0 + beepAt);
+  g.gain.linearRampToValueAtTime(1, t0 + beepAt + 0.003);
+  g.gain.setValueAtTime(1, t0 + beepAt + 0.08); g.gain.linearRampToValueAtTime(0, t0 + beepAt + 0.09);
+  o.connect(g); g.connect(ctx.destination); o.start(t0 + beepAt); o.stop(t0 + beepAt + 0.1);
+  await new Promise(r => setTimeout(r, 1700));
+  const cap = capture; capture = null;
+  const buf = toBuffer(cap, 1.3);
+  if (!buf) { msg('測定に失敗しました。もう一度試してください。'); return; }
+  const d = buf.getChannelData(0); let mx = 0;
+  for (let k = 0; k < d.length; k++) mx = Math.max(mx, Math.abs(d[k]));
+  if (mx < 0.02) { msg('ビープ音を拾えませんでした。イヤホンを外し、音量を上げて再度お試しください。'); return; }
+  let idx = 0; while (idx < d.length && Math.abs(d[idx]) < mx * 0.3) idx++;
+  const L = (idx / buf.sampleRate - beepAt) * 1000;
+  if (L < 0 || L > 800) { msg('測定値が不自然でした（' + Math.round(L) + ' ms）。静かな場所でもう一度お試しください。'); return; }
+  latencyMs = L;
+  try { localStorage.setItem('lat4', String(L)); } catch (e) {}
+  $('#lat').textContent = '測定済み：' + Math.round(L) + ' ms';
+  msg('遅延は約' + Math.round(L) + ' msでした。これから録るトラックに自動で補正されます。');
+});
+
+/* ---------- WAV書き出し ---------- */
+$('#export').addEventListener('click', async () => {
+  if (!tracks.some(t => t.buf && !t.mute)) { msg('書き出すトラックがありません。'); return; }
+  await ensureAudio();
+  const sr = ctx.sampleRate;
+  let len = 0;
+  tracks.forEach(t => { if (t.buf && !t.mute) len = Math.max(len, t.buf.duration - Math.min(0, (t.shift + t.adj) / 1000)); });
+  const off = new OfflineAudioContext(1, Math.ceil(len * sr) + 1, sr);
+  tracks.forEach(t => {
+    if (!t.buf || t.mute) return;
+    const eff = (t.shift + t.adj) / 1000;
+    const s = off.createBufferSource(); s.buffer = t.buf;
+    const g = off.createGain(); g.gain.value = t.vol * 0.7;
+    s.connect(g); g.connect(off.destination);
+    if (eff >= 0) { if (eff < t.buf.duration) s.start(0, eff); } else s.start(-eff);
+  });
+  const out = (await off.startRendering()).getChannelData(0);
+  const ab = new ArrayBuffer(44 + out.length * 2), v = new DataView(ab);
+  const w = (p, s) => [...s].forEach((c, k) => v.setUint8(p + k, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + out.length * 2, true); w(8, 'WAVEfmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, out.length * 2, true);
+  for (let k = 0; k < out.length; k++) v.setInt16(44 + k * 2, Math.max(-1, Math.min(1, out[k])) * 32767, true);
+  const d = new Date(), p2 = n => String(n).padStart(2, '0');
+  const name = 'idea_' + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + '_' + p2(d.getHours()) + p2(d.getMinutes()) + '.wav';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([ab], { type: 'audio/wav' })); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  msg(name + ' を保存しました。');
+});
+</script>
+</body>
+</html>
