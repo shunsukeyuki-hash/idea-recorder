@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>アイデア4トラック</title>
 <style>
-/* レイアウト: 上に再生操作、中央に4トラック、下に遅延測定と書き出し */
+/* レイアウト: 上に画面切り替え（録音／カレンダー／一覧）、下にメッセージ */
 :root{
   --bg:#0f1719; --panel:#172326; --line:#27373b; --fg:#e8e4d8; --sub:#8fa0a0;
   --rec:#ff5a4d; --play:#4fd1b8; --wave:#7fb8ad;
@@ -15,16 +15,24 @@
 *{box-sizing:border-box}
 html,body{margin:0}
 body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--font);
-  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) 90px max(16px,env(safe-area-inset-left))}
 main{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
 h1{font-size:20px;margin:0;letter-spacing:.04em}
-.lead{color:var(--sub);font-size:13px;margin:4px 0 0}
+h2{font-size:14px;margin:0}
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+#streak{font-size:13px;color:var(--play);white-space:nowrap}
 button{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;min-height:44px;cursor:pointer}
-button:focus-visible,input:focus-visible{outline:2px solid var(--play);outline-offset:2px}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--play);outline-offset:2px}
 button:disabled{opacity:.4;cursor:default}
+nav{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+nav button{border-radius:8px}
+nav button[aria-current=true]{background:var(--play);color:#06231e;border-color:var(--play);font-weight:700}
+section[hidden]{display:none}
+.view{display:flex;flex-direction:column;gap:16px}
 .transport{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .transport .time{font-variant-numeric:tabular-nums;font-size:22px;min-width:5.5em}
 .play{background:var(--play);color:#06231e;border-color:var(--play);font-weight:700}
+.state{font-size:13px;color:var(--sub);margin:0}
 .trk{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px}
 .trk.rec{border-color:var(--rec)}
 .hd{display:flex;gap:10px;align-items:center}
@@ -34,82 +42,266 @@ canvas{flex:1;min-width:0;height:48px;width:100%;background:var(--bg);border-rad
 .ctl{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .ctl label{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--sub);min-width:0}
 .ctl input[type=range]{width:100%;accent-color:var(--play)}
-select,input[type=number]{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;min-height:44px;width:100%;min-width:0}
+select,input[type=number],input[type=text],input[type=search]{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;min-height:44px;width:100%;min-width:0}
 .field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--sub)}
 .row{display:flex;gap:8px;flex-wrap:wrap}
-.row button{flex:1;min-width:0}
+.row>button{flex:1;min-width:0}
 .recbtn{border-color:var(--rec);color:var(--rec)}
 .trk.rec .recbtn{background:var(--rec);color:#fff}
 .box{border-top:1px solid var(--line);padding-top:16px;display:flex;flex-direction:column;gap:8px}
-.box h2{font-size:14px;margin:0}
 .note{font-size:12px;color:var(--sub);margin:0}
-#msg{min-height:1.5em;font-size:13px;color:var(--play)}
+details{border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+details>summary{padding:12px;cursor:pointer;font-size:14px}
+details>div{padding:0 12px 12px;display:flex;flex-direction:column;gap:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{min-height:36px;padding:6px 12px;border-radius:999px;font-size:13px}
+.chip[aria-pressed=true]{background:var(--play);color:#06231e;border-color:var(--play)}
+.savebtn{background:var(--play);color:#06231e;border-color:var(--play);font-weight:700}
+.cal-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.cal-head b{font-size:16px}
+.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.dow{text-align:center;font-size:12px;color:var(--sub)}
+.day{position:relative;padding:0;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-variant-numeric:tabular-nums}
+.day i{width:6px;height:6px;border-radius:50%;background:var(--play)}
+.day.today{border-color:var(--fg)}
+.day.sel{background:var(--play);color:#06231e;border-color:var(--play)}
+.day.sel i{background:#06231e}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center}
+.stat b{display:block;font-size:20px;font-variant-numeric:tabular-nums}
+.stat span{font-size:11px;color:var(--sub)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.card .meta{display:flex;justify-content:space-between;gap:8px;font-size:13px}
+.card .when{font-variant-numeric:tabular-nums}
+.sub{color:var(--sub)}
+.card .memo{margin:0;overflow-wrap:anywhere}
+.pills{display:flex;flex-wrap:wrap;gap:6px}
+.pill{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:2px 10px;color:var(--sub)}
+.cards{display:flex;flex-direction:column;gap:10px}
+#msg{position:fixed;left:max(16px,env(safe-area-inset-left));right:max(16px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));background:var(--panel);border:1px solid var(--play);color:var(--fg);border-radius:10px;padding:10px 12px;font-size:13px;z-index:5;max-width:608px;margin:0 auto}
+#msg:empty{display:none}
 </style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 <main>
-  <header>
+  <div class="top">
     <h1>アイデア4トラック</h1>
-    <p class="lead">ひな形：重ね録りと遅延の確認用。イヤホン（有線がおすすめ）をつけて使います。</p>
-  </header>
-
-  <div class="transport">
-    <button class="play" id="play">▶ 再生</button>
-    <button id="stop">■ 停止</button>
-    <span class="time" id="time">0:00</span>
+    <span id="streak"></span>
   </div>
 
-  <div id="tracks" style="display:flex;flex-direction:column;gap:12px"></div>
+  <nav>
+    <button data-v="rec" aria-current="true">録音</button>
+    <button data-v="cal" aria-current="false">カレンダー</button>
+    <button data-v="list" aria-current="false">一覧</button>
+  </nav>
 
-  <div class="box">
-    <h2>入力と補正</h2>
-    <label class="field">録音に使うマイク
-      <select id="mic"><option>（最初に録音ボタンを押すと表示されます）</option></select>
-    </label>
-    <p class="note">USB-Cのイヤホンアダプターで録れないときは、ここで本体のマイク（Built-in など）を選びます。</p>
-    <label class="field">イヤホン使用時の追加補正（ms）
-      <input type="number" id="extra" step="5" min="-500" max="1000" value="250">
-    </label>
-    <p class="note">測定値に足す値です。次に録音するトラックから反映されます。</p>
-  </div>
-
-  <div class="box">
-    <h2>遅延の測定</h2>
-    <p class="note">端末のスピーカーからビープ音を鳴らし、マイクで拾って、録音のズレを自動で測ります。イヤホンは外し、静かな場所でスピーカーの音量を上げて行ってください。</p>
-    <div class="row">
-      <button id="measure">遅延を測る</button>
-      <span id="lat" style="align-self:center;font-variant-numeric:tabular-nums"></span>
+  <!-- 録音 -->
+  <section id="v-rec" class="view">
+    <p class="state" id="editing">新しいアイデア（未保存）</p>
+    <div class="transport">
+      <button class="play" id="play">▶ 再生</button>
+      <button id="stop">■ 停止</button>
+      <span class="time" id="time">0:00</span>
     </div>
-  </div>
 
-  <div class="box">
-    <h2>書き出し</h2>
-    <button id="export">4トラックをミックスして保存（WAV）</button>
-    <p class="note">この版は、閉じると録音が消えます。保存とGoogleドライブ連携は次の段階で付けます。</p>
-  </div>
+    <div id="tracks" style="display:flex;flex-direction:column;gap:12px"></div>
 
-  <div id="msg" role="status"></div>
+    <div class="box">
+      <h2>保存</h2>
+      <label class="field">一言メモ
+        <input type="text" id="memo" maxlength="80" placeholder="例：サビ前のコード進行">
+      </label>
+      <div class="field">タグ<div class="chips" id="saveTags"></div></div>
+      <div class="row">
+        <input type="text" id="newTag" maxlength="12" placeholder="新しいタグ" style="flex:2;min-width:0">
+        <button id="addTag" style="flex:1">追加</button>
+      </div>
+      <div class="row">
+        <button class="savebtn" id="save">この端末に保存</button>
+        <button id="fresh">新しいアイデア</button>
+      </div>
+    </div>
+
+    <details>
+      <summary>入力と補正</summary>
+      <div>
+        <label class="field">録音に使うマイク
+          <select id="mic"><option>（最初に録音ボタンを押すと表示されます）</option></select>
+        </label>
+        <label class="field">イヤホン使用時の追加補正（ms）
+          <input type="number" id="extra" step="5" min="-500" max="1000" value="250">
+        </label>
+        <p class="note">測定値に足す値です。次に録音するトラックから反映されます。</p>
+        <h2>遅延の測定</h2>
+        <p class="note">スピーカーからビープ音を鳴らし、マイクで拾ってズレを測ります。イヤホンは外し、静かな場所で音量を上げて行ってください。</p>
+        <div class="row">
+          <button id="measure">遅延を測る</button>
+          <span id="lat" style="align-self:center;font-variant-numeric:tabular-nums"></span>
+        </div>
+        <h2>書き出し</h2>
+        <button id="export">いまの4トラックをミックスして保存（WAV）</button>
+      </div>
+    </details>
+  </section>
+
+  <!-- カレンダー -->
+  <section id="v-cal" class="view" hidden>
+    <div class="stats">
+      <div class="stat"><b id="stStreak">0</b><span>連続日数</span></div>
+      <div class="stat"><b id="stMonth">0</b><span>今月の録音日数</span></div>
+      <div class="stat"><b id="stTotal">0</b><span>アイデア総数</span></div>
+    </div>
+    <div class="cal-head">
+      <button id="calPrev" aria-label="前の月">◀</button>
+      <b id="calTitle"></b>
+      <button id="calNext" aria-label="次の月">▶</button>
+    </div>
+    <div class="grid" id="calGrid"></div>
+    <h2 id="dayTitle"></h2>
+    <div class="cards" id="dayIdeas"></div>
+  </section>
+
+  <!-- 一覧 -->
+  <section id="v-list" class="view" hidden>
+    <details>
+      <summary>Googleドライブと同期</summary>
+      <div>
+        <label class="field">クライアントID
+          <input type="text" id="cid" placeholder="xxxxxxxx.apps.googleusercontent.com" autocomplete="off">
+        </label>
+        <p class="note">ジャーナルアプリで使っているGoogle CloudのクライアントIDと同じものが使えます。ドライブの「アイデア録音」フォルダに、トラックごとのWAV、ミックス、メモを保存します。</p>
+        <button id="sync">ドライブと同期</button>
+        <p class="note" id="syncMsg"></p>
+      </div>
+    </details>
+    <input type="search" id="q" placeholder="メモで検索">
+    <div class="chips" id="filterTags"></div>
+    <div class="cards" id="listIdeas"></div>
+  </section>
 </main>
+<div id="msg" role="status"></div>
 
 <script>
 const N = 4, MAX_SEC = 180;
-let ctx = null, stream = null, proc = null;
-let capture = null, recIdx = -1, recTimer = null;
-let sources = [], playEnd = 0, playT0 = 0, raf = 0, isPlaying = false;
-let latencyMs = 0;
-let extraMs = 250, savedDev = '', micSrc = null, silent = null;
-try {
-  latencyMs = Number(localStorage.getItem('lat4') || 0) || 0;
-  const ex = localStorage.getItem('extra4'); if (ex !== null && ex !== '') extraMs = Number(ex) || 0;
-  savedDev = localStorage.getItem('mic4') || '';
-} catch (e) {}
-
-const tracks = Array.from({ length: N }, () => ({ buf: null, vol: 0.9, shift: 0, adj: 0, mute: false }));
+const BASE_TAGS = ['ギター', '鼻歌', 'リズム', '歌詞', 'ひらめき'];
 const $ = (s, r = document) => r.querySelector(s);
-const msg = t => { $('#msg').textContent = t || ''; };
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const p2 = n => String(n).padStart(2, '0');
+const dayStr = d => d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
 const fmt = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+const msg = t => { $('#msg').textContent = t || ''; };
+const ls = {
+  get(k, d = '') { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+};
 
-/* ---------- 画面 ---------- */
+/* ---------- 状態 ---------- */
+let ctx = null, stream = null, proc = null, micSrc = null, silent = null;
+let capture = null, recIdx = -1, recTimer = null;
+let sources = [], playEnd = 0, playT0 = 0, raf = 0, isPlaying = false, previewId = null;
+let latencyMs = Number(ls.get('lat4', 0)) || 0;
+let extraMs = ls.get('extra4', '') === '' ? 250 : (Number(ls.get('extra4')) || 0);
+let savedDev = ls.get('mic4', '');
+const tracks = Array.from({ length: N }, () => ({ buf: null, vol: 0.9, shift: 0, adj: 0, mute: false }));
+let current = null;            // 編集中のアイデア（メタ情報）
+let allIdeas = [];             // 保存済みアイデアのメタ情報
+let selTags = new Set();
+let calY = new Date().getFullYear(), calM = new Date().getMonth(), selDay = dayStr(new Date());
+let filterTag = '', query = '';
+
+/* ---------- 端末内保存（IndexedDB） ---------- */
+const dbp = new Promise((res, rej) => {
+  const r = indexedDB.open('idea4', 1);
+  r.onupgradeneeded = () => { r.result.createObjectStore('ideas', { keyPath: 'id' }); r.result.createObjectStore('pcm', { keyPath: 'key' }); };
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+});
+function tx(store, mode, fn) {
+  return dbp.then(db => new Promise((res, rej) => {
+    const t = db.transaction(store, mode); const rq = fn(t.objectStore(store));
+    t.oncomplete = () => res(rq && rq.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+  }));
+}
+const dbAll = s => tx(s, 'readonly', o => o.getAll());
+const dbGet = (s, k) => tx(s, 'readonly', o => o.get(k));
+const dbPut = (s, v) => tx(s, 'readwrite', o => o.put(v));
+const dbDel = (s, k) => tx(s, 'readwrite', o => o.delete(k));
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+
+/* ---------- 音声データ変換 ---------- */
+function mkCtx() { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }); return ctx; }
+function toInt16(buf) {
+  const d = buf.getChannelData(0), o = new Int16Array(d.length);
+  for (let i = 0; i < d.length; i++) { const v = Math.max(-1, Math.min(1, d[i])); o[i] = v < 0 ? v * 32768 : v * 32767; }
+  return o;
+}
+function fromInt16(i16, sr) {
+  const b = mkCtx().createBuffer(1, Math.max(1, i16.length), sr), f = new Float32Array(Math.max(1, i16.length));
+  for (let i = 0; i < i16.length; i++) f[i] = i16[i] / 32768;
+  b.copyToChannel(f, 0); return b;
+}
+function wavBlob(i16, sr) {
+  const ab = new ArrayBuffer(44 + i16.length * 2), v = new DataView(ab);
+  const w = (p, s) => [...s].forEach((c, k) => v.setUint8(p + k, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + i16.length * 2, true); w(8, 'WAVEfmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, i16.length * 2, true);
+  new Int16Array(ab, 44, i16.length).set(i16);
+  return new Blob([ab], { type: 'audio/wav' });
+}
+function parseWav(ab) {
+  const v = new DataView(ab); const sr = v.getUint32(24, true);
+  const n = Math.floor((ab.byteLength - 44) / 2);
+  return { sr, data: new Int16Array(ab.slice(44, 44 + n * 2)) };
+}
+async function renderMixBlob(list) {
+  mkCtx(); const sr = ctx.sampleRate; let len = 0;
+  list.forEach(t => { if (t.buf && !t.mute) len = Math.max(len, t.buf.duration - Math.min(0, (t.shift + t.adj) / 1000)); });
+  if (!len) return null;
+  const off = new OfflineAudioContext(1, Math.ceil(len * sr) + 1, sr);
+  list.forEach(t => {
+    if (!t.buf || t.mute) return;
+    const eff = (t.shift + t.adj) / 1000;
+    const s = off.createBufferSource(); s.buffer = t.buf;
+    const g = off.createGain(); g.gain.value = t.vol * 0.7;
+    s.connect(g); g.connect(off.destination);
+    if (eff >= 0) { if (eff < t.buf.duration) s.start(0, eff); } else s.start(-eff);
+  });
+  const out = (await off.startRendering()).getChannelData(0);
+  const i16 = new Int16Array(out.length);
+  for (let k = 0; k < out.length; k++) i16[k] = Math.max(-1, Math.min(1, out[k])) * 32767;
+  return wavBlob(i16, sr);
+}
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+async function loadIdeaTracks(m) {
+  const out = [];
+  for (let k = 0; k < N; k++) {
+    const tm = m.tracks[k];
+    if (!tm || !tm.has) { out.push({ buf: null, vol: 0.9, shift: 0, adj: 0, mute: false }); continue; }
+    const p = await dbGet('pcm', m.id + '_' + k);
+    out.push({ buf: p ? fromInt16(new Int16Array(p.data), p.sr) : null, vol: tm.vol, shift: tm.shift, adj: tm.adj, mute: tm.mute });
+  }
+  return out;
+}
+
+/* ---------- 画面切り替え ---------- */
+function showView(v) {
+  ['rec', 'cal', 'list'].forEach(n => { $('#v-' + n).hidden = n !== v; });
+  $$('nav button').forEach(b => b.setAttribute('aria-current', String(b.dataset.v === v)));
+  if (v === 'rec') tracks.forEach((_, i) => drawWave(i));
+  if (v === 'cal') renderCal();
+  if (v === 'list') renderList();
+  window.scrollTo(0, 0);
+}
+$$('nav button').forEach(b => b.addEventListener('click', () => showView(b.dataset.v)));
+
+/* ---------- トラック画面 ---------- */
 const wrap = $('#tracks');
 tracks.forEach((t, i) => {
   const el = document.createElement('section');
@@ -118,7 +310,7 @@ tracks.forEach((t, i) => {
     '<div class="hd"><span class="n">' + (i + 1) + '</span><canvas></canvas></div>' +
     '<div class="ctl">' +
       '<label>音量<input type="range" min="0" max="1" step="0.01" value="' + t.vol + '" data-k="vol"></label>' +
-      '<label>ズレ補正 <output data-o>0 ms</output><input type="range" min="-300" max="300" step="5" value="0" data-k="adj"></label>' +
+      '<label>ズレ補正 <output data-o>0 ms</output><input type="range" min="-500" max="500" step="5" value="0" data-k="adj"></label>' +
     '</div>' +
     '<div class="row">' +
       '<button class="recbtn" data-a="rec">● 録音</button>' +
@@ -136,15 +328,22 @@ tracks.forEach((t, i) => {
     const b = e.target.closest('button'); if (!b) return;
     const a = b.dataset.a;
     if (a === 'rec') { recIdx === i ? stopRec() : startRec(i); }
-    if (a === 'mute') { t.mute = !t.mute; b.textContent = t.mute ? 'ミュート中' : 'ミュート'; b.style.borderColor = t.mute ? 'var(--rec)' : ''; }
+    if (a === 'mute') { t.mute = !t.mute; setTrackUI(i); }
     if (a === 'clr') {
-      if (b.dataset.armed) { t.buf = null; delete b.dataset.armed; b.textContent = '消去'; drawWave(i); clearTimeout(clrTimer); }
+      if (b.dataset.armed) { t.buf = null; t.adj = 0; t.shift = 0; delete b.dataset.armed; b.textContent = '消去'; setTrackUI(i); drawWave(i); clearTimeout(clrTimer); }
       else { b.dataset.armed = '1'; b.textContent = 'もう一度で消去'; clrTimer = setTimeout(() => { delete b.dataset.armed; b.textContent = '消去'; }, 2000); }
     }
   });
   drawWave(i);
 });
-
+function setTrackUI(i) {
+  const t = tracks[i], el = $('#trk' + i);
+  $('input[data-k="vol"]', el).value = t.vol;
+  $('input[data-k="adj"]', el).value = t.adj;
+  $('[data-o]', el).textContent = t.adj + ' ms';
+  const b = $('[data-a="mute"]', el);
+  b.textContent = t.mute ? 'ミュート中' : 'ミュート'; b.style.borderColor = t.mute ? 'var(--rec)' : '';
+}
 function drawWave(i) {
   const c = $('#trk' + i + ' canvas');
   const w = c.clientWidth || 300, h = c.clientHeight || 48, dpr = window.devicePixelRatio || 1;
@@ -163,14 +362,11 @@ function drawWave(i) {
   }
   g.stroke();
 }
-window.addEventListener('resize', () => tracks.forEach((_, i) => drawWave(i)));
+window.addEventListener('resize', () => { if (!$('#v-rec').hidden) tracks.forEach((_, i) => drawWave(i)); });
 $('#lat').textContent = latencyMs ? '測定済み：' + Math.round(latencyMs) + ' ms' : '未測定';
 
-/* ---------- 音声 ---------- */
-async function ensureAudio() {
-  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-  if (ctx.state !== 'running') await ctx.resume();
-}
+/* ---------- マイク ---------- */
+async function ensureAudio() { mkCtx(); if (ctx.state !== 'running') await ctx.resume(); }
 async function openMic(deviceId) {
   if (stream) stream.getTracks().forEach(t => t.stop());
   if (micSrc) { try { micSrc.disconnect(); } catch (e) {} }
@@ -208,7 +404,7 @@ async function ensureMic() {
     try { await openMic(savedDev); }
     catch (e) { if (savedDev) await openMic(''); else throw e; }
   } catch (e) {
-    msg('マイクを使えませんでした。ブラウザのマイク許可と、https（またはlocalhost）で開いているかを確認してください。');
+    msg('マイクを使えませんでした。ブラウザのマイク許可と、https で開いているかを確認してください。');
     throw e;
   }
   await listMics();
@@ -216,17 +412,12 @@ async function ensureMic() {
 $('#mic').addEventListener('change', async e => {
   if (recIdx >= 0) { msg('録音中は切り替えられません。'); return; }
   try {
-    await openMic(e.target.value);
-    savedDev = e.target.value;
-    try { localStorage.setItem('mic4', savedDev); } catch (x) {}
+    await openMic(e.target.value); savedDev = e.target.value; ls.set('mic4', savedDev);
     msg('マイクを切り替えました。「遅延を測る」でもう一度測ると確実です。');
   } catch (x) { msg('そのマイクは使えませんでした。別のものを選んでください。'); }
 });
 $('#extra').value = extraMs;
-$('#extra').addEventListener('input', e => {
-  extraMs = Number(e.target.value) || 0;
-  try { localStorage.setItem('extra4', String(extraMs)); } catch (x) {}
-});
+$('#extra').addEventListener('input', e => { extraMs = Number(e.target.value) || 0; ls.set('extra4', String(extraMs)); });
 
 function toBuffer(cap, seconds) {
   const sr = ctx.sampleRate, total = Math.max(1, Math.round(seconds * sr));
@@ -243,9 +434,10 @@ function toBuffer(cap, seconds) {
   return buf;
 }
 
-function schedule(t0, skip) {
+/* ---------- 再生 ---------- */
+function schedule(t0, skip, list = tracks) {
   let end = 0;
-  tracks.forEach((t, k) => {
+  list.forEach((t, k) => {
     if (k === skip || !t.buf || t.mute) return;
     const eff = (t.shift + t.adj) / 1000;
     const s = ctx.createBufferSource(); s.buffer = t.buf;
@@ -258,20 +450,12 @@ function schedule(t0, skip) {
   return end;
 }
 function stopSources() { sources.forEach(s => { try { s.stop(); } catch (e) {} }); sources = []; }
-
-/* ---------- 再生 ---------- */
-async function play() {
-  if (recIdx >= 0) return;
-  await ensureAudio(); stopAll();
-  playT0 = ctx.currentTime + 0.1;
-  playEnd = schedule(playT0, -1);
-  if (!playEnd) { msg('再生するトラックがありません。'); return; }
-  isPlaying = true; msg('');
-  tick();
-}
 function stopAll() {
-  stopSources(); isPlaying = false; cancelAnimationFrame(raf);
-  $('#time').textContent = '0:00';
+  stopSources(); isPlaying = false; previewId = null; cancelAnimationFrame(raf);
+  $('#time').textContent = '0:00'; updatePreviewButtons();
+}
+function updatePreviewButtons() {
+  $$('[data-a="play"]').forEach(b => { const on = b.closest('.card').dataset.id === previewId; b.textContent = on ? '■ 停止' : '▶ 聴く'; });
 }
 function tick() {
   if (!isPlaying) return;
@@ -279,6 +463,14 @@ function tick() {
   $('#time').textContent = fmt(el);
   if (el >= playEnd) { stopAll(); return; }
   raf = requestAnimationFrame(tick);
+}
+async function play() {
+  if (recIdx >= 0) return;
+  await ensureAudio(); stopAll();
+  playT0 = ctx.currentTime + 0.1;
+  playEnd = schedule(playT0, -1);
+  if (!playEnd) { msg('再生するトラックがありません。'); return; }
+  isPlaying = true; msg(''); tick();
 }
 $('#play').addEventListener('click', play);
 $('#stop').addEventListener('click', () => { if (recIdx >= 0) stopRec(); else stopAll(); });
@@ -305,12 +497,11 @@ function stopRec() {
   const buf = secs > 0.2 ? toBuffer(cap, secs) : null;
   if (buf) { tracks[i].buf = buf; tracks[i].shift = latencyMs + extraMs; tracks[i].adj = 0; }
   const row = $('#trk' + i); row.classList.remove('rec'); $('.recbtn', row).textContent = '● 録音';
-  const sl = $('input[data-k="adj"]', row); sl.value = 0; $('[data-o]', row).textContent = '0 ms';
-  drawWave(i); $('#time').textContent = fmt(secs);
-  msg(buf ? 'トラック' + (i + 1) + 'を録音しました。▶ 再生で重ねて確認できます。' : '録音が短すぎたので、保存しませんでした。');
+  setTrackUI(i); drawWave(i); $('#time').textContent = fmt(secs);
+  msg(buf ? 'トラック' + (i + 1) + 'を録音しました。保存するのを忘れずに。' : '録音が短すぎたので、保存しませんでした。');
 }
 
-/* ---------- 遅延測定 ---------- */
+/* ---------- 遅延測定・書き出し ---------- */
 $('#measure').addEventListener('click', async () => {
   if (recIdx >= 0) return;
   try { await ensureMic(); } catch (e) { return; }
@@ -332,43 +523,311 @@ $('#measure').addEventListener('click', async () => {
   let idx = 0; while (idx < d.length && Math.abs(d[idx]) < mx * 0.3) idx++;
   const L = (idx / buf.sampleRate - beepAt) * 1000;
   if (L < 0 || L > 800) { msg('測定値が不自然でした（' + Math.round(L) + ' ms）。静かな場所でもう一度お試しください。'); return; }
-  latencyMs = L;
-  try { localStorage.setItem('lat4', String(L)); } catch (e) {}
+  latencyMs = L; ls.set('lat4', String(L));
   $('#lat').textContent = '測定済み：' + Math.round(L) + ' ms';
   msg('遅延は約' + Math.round(L) + ' msでした。これから録るトラックに自動で補正されます。');
 });
-
-/* ---------- WAV書き出し ---------- */
 $('#export').addEventListener('click', async () => {
-  if (!tracks.some(t => t.buf && !t.mute)) { msg('書き出すトラックがありません。'); return; }
   await ensureAudio();
-  const sr = ctx.sampleRate;
-  let len = 0;
-  tracks.forEach(t => { if (t.buf && !t.mute) len = Math.max(len, t.buf.duration - Math.min(0, (t.shift + t.adj) / 1000)); });
-  const off = new OfflineAudioContext(1, Math.ceil(len * sr) + 1, sr);
-  tracks.forEach(t => {
-    if (!t.buf || t.mute) return;
-    const eff = (t.shift + t.adj) / 1000;
-    const s = off.createBufferSource(); s.buffer = t.buf;
-    const g = off.createGain(); g.gain.value = t.vol * 0.7;
-    s.connect(g); g.connect(off.destination);
-    if (eff >= 0) { if (eff < t.buf.duration) s.start(0, eff); } else s.start(-eff);
-  });
-  const out = (await off.startRendering()).getChannelData(0);
-  const ab = new ArrayBuffer(44 + out.length * 2), v = new DataView(ab);
-  const w = (p, s) => [...s].forEach((c, k) => v.setUint8(p + k, c.charCodeAt(0)));
-  w(0, 'RIFF'); v.setUint32(4, 36 + out.length * 2, true); w(8, 'WAVEfmt ');
-  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-  w(36, 'data'); v.setUint32(40, out.length * 2, true);
-  for (let k = 0; k < out.length; k++) v.setInt16(44 + k * 2, Math.max(-1, Math.min(1, out[k])) * 32767, true);
-  const d = new Date(), p2 = n => String(n).padStart(2, '0');
-  const name = 'idea_' + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + '_' + p2(d.getHours()) + p2(d.getMinutes()) + '.wav';
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([ab], { type: 'audio/wav' })); a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  msg(name + ' を保存しました。');
+  const blob = await renderMixBlob(tracks);
+  if (!blob) { msg('書き出すトラックがありません。'); return; }
+  const d = new Date();
+  const name = 'idea_' + dayStr(d).replace(/-/g, '') + '_' + p2(d.getHours()) + p2(d.getMinutes()) + '.wav';
+  downloadBlob(blob, name); msg(name + ' を保存しました。');
 });
+
+/* ---------- タグ ---------- */
+function allTags() {
+  let custom = []; try { custom = JSON.parse(ls.get('tags4', '[]')); } catch (e) {}
+  const set = new Set([...BASE_TAGS, ...custom]);
+  allIdeas.forEach(m => (m.tags || []).forEach(t => set.add(t)));
+  selTags.forEach(t => set.add(t));
+  return [...set];
+}
+function chip(text, pressed, key) {
+  const b = document.createElement('button');
+  b.className = 'chip'; b.textContent = text; b.setAttribute('aria-pressed', String(pressed)); b.dataset.tag = key;
+  return b;
+}
+function renderSaveTags() {
+  const box = $('#saveTags'); box.innerHTML = '';
+  allTags().forEach(t => box.appendChild(chip(t, selTags.has(t), t)));
+}
+$('#saveTags').addEventListener('click', e => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  const t = b.dataset.tag; selTags.has(t) ? selTags.delete(t) : selTags.add(t); renderSaveTags();
+});
+$('#addTag').addEventListener('click', () => {
+  const v = $('#newTag').value.trim(); if (!v) return;
+  let custom = []; try { custom = JSON.parse(ls.get('tags4', '[]')); } catch (e) {}
+  if (!custom.includes(v)) custom.push(v);
+  ls.set('tags4', JSON.stringify(custom)); selTags.add(v); $('#newTag').value = ''; renderSaveTags();
+});
+
+/* ---------- 保存・開く・削除 ---------- */
+function label() {
+  $('#editing').textContent = current
+    ? (() => { const d = new Date(current.ts); return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ' のアイデアを編集中（保存で上書き）'; })()
+    : '新しいアイデア（未保存）';
+}
+async function refresh() {
+  allIdeas = (await dbAll('ideas')).sort((a, b) => b.ts - a.ts);
+  const s = streak(); $('#streak').textContent = s ? '連続 ' + s + ' 日' : '';
+  renderSaveTags();
+  if (!$('#v-cal').hidden) renderCal();
+  if (!$('#v-list').hidden) renderList();
+}
+async function saveIdea() {
+  if (!tracks.some(t => t.buf)) { msg('保存するトラックがありません。'); return; }
+  if (recIdx >= 0) { msg('録音を止めてから保存してください。'); return; }
+  const now = Date.now();
+  const m = current ? { ...current } : { id: 'i' + now, ts: now, day: dayStr(new Date(now)) };
+  m.updatedAt = now; m.memo = $('#memo').value.trim(); m.tags = [...selTags];
+  m.tracks = tracks.map(t => t.buf ? { has: true, sr: t.buf.sampleRate, shift: t.shift, adj: t.adj, vol: t.vol, mute: t.mute } : { has: false });
+  try {
+    for (let k = 0; k < N; k++) {
+      if (tracks[k].buf) await dbPut('pcm', { key: m.id + '_' + k, sr: tracks[k].buf.sampleRate, data: toInt16(tracks[k].buf).buffer });
+      else await dbDel('pcm', m.id + '_' + k);
+    }
+    await dbPut('ideas', m);
+  } catch (e) { msg('保存できませんでした。端末の空き容量を確認してください。'); return; }
+  current = m; label(); await refresh();
+  msg('保存しました。ドライブへは「一覧」の同期で送れます。');
+}
+$('#save').addEventListener('click', saveIdea);
+let freshTimer = 0;
+$('#fresh').addEventListener('click', e => {
+  const b = e.currentTarget;
+  if (recIdx >= 0) return;
+  if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'もう一度で新規'; freshTimer = setTimeout(() => { delete b.dataset.armed; b.textContent = '新しいアイデア'; }, 2500); return; }
+  clearTimeout(freshTimer); delete b.dataset.armed; b.textContent = '新しいアイデア';
+  stopAll();
+  tracks.forEach((t, i) => { t.buf = null; t.vol = 0.9; t.shift = 0; t.adj = 0; t.mute = false; setTrackUI(i); drawWave(i); });
+  current = null; selTags = new Set(); $('#memo').value = ''; renderSaveTags(); label();
+  msg('新しいアイデアを始めます。');
+});
+async function openIdea(id) {
+  if (recIdx >= 0) { msg('録音を止めてから開いてください。'); return; }
+  const m = allIdeas.find(x => x.id === id); if (!m) return;
+  stopAll();
+  const list = await loadIdeaTracks(m);
+  list.forEach((t, i) => { Object.assign(tracks[i], t); setTrackUI(i); });
+  current = m; selTags = new Set(m.tags || []); $('#memo').value = m.memo || '';
+  renderSaveTags(); label(); showView('rec');
+  msg('開きました。重ね録りして、保存すると上書きされます。');
+}
+function getDel() { try { return JSON.parse(ls.get('del4', '[]')); } catch (e) { return []; } }
+async function deleteIdea(id) {
+  const m = allIdeas.find(x => x.id === id); if (!m) return;
+  for (let k = 0; k < N; k++) await dbDel('pcm', id + '_' + k);
+  await dbDel('ideas', id);
+  if (m.drive) { const d = getDel(); d.push(id); ls.set('del4', JSON.stringify(d)); }
+  if (current && current.id === id) { current = null; label(); }
+  await refresh(); msg('削除しました。');
+}
+async function previewIdea(id) {
+  if (recIdx >= 0) return;
+  if (previewId === id) { stopAll(); return; }
+  const m = allIdeas.find(x => x.id === id); if (!m) return;
+  await ensureAudio(); stopAll();
+  const list = await loadIdeaTracks(m);
+  playT0 = ctx.currentTime + 0.1;
+  playEnd = schedule(playT0, -1, list);
+  if (!playEnd) { msg('再生できるトラックがありません。'); return; }
+  previewId = id; isPlaying = true; updatePreviewButtons(); tick();
+}
+function cardClick(e) {
+  const b = e.target.closest('button[data-a]'); if (!b) return;
+  const card = b.closest('.card'); if (!card) return;
+  const id = card.dataset.id, a = b.dataset.a;
+  if (a === 'play') previewIdea(id);
+  if (a === 'open') openIdea(id);
+  if (a === 'del') {
+    if (b.dataset.armed) deleteIdea(id);
+    else { b.dataset.armed = '1'; b.textContent = 'もう一度で削除'; setTimeout(() => { delete b.dataset.armed; b.textContent = '削除'; }, 2500); }
+  }
+}
+function ideaCard(m) {
+  const el = document.createElement('article'); el.className = 'card'; el.dataset.id = m.id;
+  const d = new Date(m.ts), n = m.tracks.filter(t => t.has).length;
+  const synced = m.drive && m.drive.at >= m.updatedAt;
+  el.innerHTML = '<div class="meta"><span class="when"></span><span class="sub"></span></div><p class="memo"></p><div class="pills"></div>' +
+    '<div class="row"><button data-a="play">▶ 聴く</button><button data-a="open">開く</button><button data-a="del">削除</button></div>';
+  $('.when', el).textContent = (d.getMonth() + 1) + '/' + d.getDate() + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  $('.sub', el).textContent = n + 'トラック' + (synced ? '・ドライブ済' : '');
+  $('.memo', el).textContent = m.memo || '（メモなし）';
+  (m.tags || []).forEach(t => { const s = document.createElement('span'); s.className = 'pill'; s.textContent = t; $('.pills', el).appendChild(s); });
+  return el;
+}
+$('#dayIdeas').addEventListener('click', cardClick);
+$('#listIdeas').addEventListener('click', cardClick);
+
+/* ---------- カレンダー・連続日数 ---------- */
+function dayCounts() { const m = new Map(); allIdeas.forEach(i => m.set(i.day, (m.get(i.day) || 0) + 1)); return m; }
+function streak() {
+  const days = dayCounts(); const d = new Date();
+  if (!days.has(dayStr(d))) d.setDate(d.getDate() - 1);
+  let n = 0; while (days.has(dayStr(d))) { n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+function renderCal() {
+  $('#calTitle').textContent = calY + '年' + (calM + 1) + '月';
+  const days = dayCounts(), first = new Date(calY, calM, 1), dim = new Date(calY, calM + 1, 0).getDate(), today = dayStr(new Date());
+  const g = $('#calGrid'); g.innerHTML = '';
+  ['日', '月', '火', '水', '木', '金', '土'].forEach(w => { const e = document.createElement('div'); e.className = 'dow'; e.textContent = w; g.appendChild(e); });
+  for (let i = 0; i < first.getDay(); i++) g.appendChild(document.createElement('div'));
+  const prefix = calY + '-' + p2(calM + 1) + '-'; let monthDays = 0;
+  for (let d = 1; d <= dim; d++) {
+    const ds = prefix + p2(d), has = days.has(ds); if (has) monthDays++;
+    const b = document.createElement('button');
+    b.className = 'day' + (ds === today ? ' today' : '') + (ds === selDay ? ' sel' : ''); b.dataset.day = ds;
+    b.innerHTML = '<span>' + d + '</span>' + (has ? '<i></i>' : '');
+    b.setAttribute('aria-label', (calM + 1) + '月' + d + '日' + (has ? '、録音あり' : ''));
+    g.appendChild(b);
+  }
+  $('#stStreak').textContent = streak(); $('#stMonth').textContent = monthDays; $('#stTotal').textContent = allIdeas.length;
+  const list = allIdeas.filter(m => m.day === selDay), box = $('#dayIdeas'); box.innerHTML = '';
+  const [yy, mm, dd] = selDay.split('-').map(Number);
+  $('#dayTitle').textContent = mm + '月' + dd + '日のアイデア';
+  if (!list.length) { const p = document.createElement('p'); p.className = 'note'; p.textContent = 'この日の録音はありません。'; box.appendChild(p); }
+  list.forEach(m => box.appendChild(ideaCard(m)));
+  updatePreviewButtons();
+}
+$('#calGrid').addEventListener('click', e => { const b = e.target.closest('.day'); if (b) { selDay = b.dataset.day; renderCal(); } });
+$('#calPrev').addEventListener('click', () => { calM--; if (calM < 0) { calM = 11; calY--; } renderCal(); });
+$('#calNext').addEventListener('click', () => { calM++; if (calM > 11) { calM = 0; calY++; } renderCal(); });
+
+/* ---------- 一覧 ---------- */
+function renderList() {
+  const used = new Set(); allIdeas.forEach(m => (m.tags || []).forEach(t => used.add(t)));
+  if (filterTag && !used.has(filterTag)) filterTag = '';
+  const fb = $('#filterTags'); fb.innerHTML = '';
+  fb.appendChild(chip('すべて', !filterTag, ''));
+  [...used].forEach(t => fb.appendChild(chip(t, filterTag === t, t)));
+  const q = query.trim().toLowerCase();
+  const list = allIdeas.filter(m => (!filterTag || (m.tags || []).includes(filterTag)) && (!q || (m.memo || '').toLowerCase().includes(q)));
+  const box = $('#listIdeas'); box.innerHTML = '';
+  if (!list.length) { const p = document.createElement('p'); p.className = 'note'; p.textContent = allIdeas.length ? '条件に合うアイデアがありません。' : 'まだ保存したアイデアがありません。録音画面で保存すると、ここに並びます。'; box.appendChild(p); }
+  list.forEach(m => box.appendChild(ideaCard(m)));
+  updatePreviewButtons();
+}
+$('#filterTags').addEventListener('click', e => { const b = e.target.closest('.chip'); if (!b) return; filterTag = b.dataset.tag; renderList(); });
+$('#q').addEventListener('input', e => { query = e.target.value; renderList(); });
+
+/* ---------- Googleドライブ同期 ---------- */
+let accessToken = '', tokenExp = 0, folderId = '';
+$('#cid').value = ls.get('cid4', '');
+$('#cid').addEventListener('input', e => { ls.set('cid4', e.target.value.trim()); accessToken = ''; folderId = ''; });
+const syncMsg = t => { $('#syncMsg').textContent = t || ''; };
+function getToken() {
+  return new Promise((res, rej) => {
+    if (accessToken && Date.now() < tokenExp - 60000) return res(accessToken);
+    const cid = ls.get('cid4', '').trim();
+    if (!cid) { rej(new Error('クライアントIDを入力してください。')); return; }
+    if (!window.google || !google.accounts || !google.accounts.oauth2) { rej(new Error('Googleのログイン機能を読み込めませんでした。通信状態を確認してください。')); return; }
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: cid, scope: 'https://www.googleapis.com/auth/drive.file',
+      callback: r => { if (r.error) { rej(new Error('ログインできませんでした（' + r.error + '）。')); return; } accessToken = r.access_token; tokenExp = Date.now() + r.expires_in * 1000; res(accessToken); },
+      error_callback: e => rej(new Error('ログインが完了しませんでした（' + (e.type || 'cancel') + '）。'))
+    });
+    client.requestAccessToken();
+  });
+}
+async function gfetch(url, opt = {}) {
+  const t = await getToken();
+  const r = await fetch(url, { ...opt, headers: { ...(opt.headers || {}), Authorization: 'Bearer ' + t } });
+  if (!r.ok) { const e = new Error('ドライブとの通信に失敗しました（' + r.status + '）。'); e.status = r.status; throw e; }
+  return r;
+}
+async function ensureFolder() {
+  if (folderId) return folderId;
+  const q = encodeURIComponent("name='アイデア録音' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+  const r = await (await gfetch('https://www.googleapis.com/drive/v3/files?q=' + q + '&fields=files(id)&spaces=drive')).json();
+  if (r.files.length) { folderId = r.files[0].id; return folderId; }
+  const c = await (await gfetch('https://www.googleapis.com/drive/v3/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'アイデア録音', mimeType: 'application/vnd.google-apps.folder' }) })).json();
+  folderId = c.id; return folderId;
+}
+async function upsert(name, blob, mime, existingId) {
+  const folder = await ensureFolder();
+  if (existingId) {
+    try {
+      const r = await gfetch('https://www.googleapis.com/upload/drive/v3/files/' + existingId + '?uploadType=media&fields=id', { method: 'PATCH', headers: { 'Content-Type': mime }, body: blob });
+      return (await r.json()).id;
+    } catch (e) { if (e.status !== 404) throw e; }
+  }
+  const b = 'b' + Math.random().toString(16).slice(2);
+  const body = new Blob(['--' + b + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify({ name, parents: [folder] }) + '\r\n--' + b + '\r\nContent-Type: ' + mime + '\r\n\r\n', blob, '\r\n--' + b + '--']);
+  const r = await gfetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', { method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + b }, body });
+  return (await r.json()).id;
+}
+async function listRemote() {
+  const f = await ensureFolder(), out = []; let page = '';
+  do {
+    const q = encodeURIComponent("'" + f + "' in parents and trashed=false and name contains '.json'");
+    const r = await (await gfetch('https://www.googleapis.com/drive/v3/files?q=' + q + '&fields=nextPageToken,files(id,name)&pageSize=200' + (page ? '&pageToken=' + page : ''))).json();
+    out.push(...r.files); page = r.nextPageToken || '';
+  } while (page);
+  return out;
+}
+async function uploadIdea(m) {
+  const drv = { ...(m.drive || {}) }, base = 'idea_' + m.id, ids = {};
+  for (let k = 0; k < N; k++) {
+    if (!m.tracks[k].has) continue;
+    const p = await dbGet('pcm', m.id + '_' + k); if (!p) continue;
+    drv['t' + k] = await upsert(base + '_t' + (k + 1) + '.wav', wavBlob(new Int16Array(p.data), p.sr), 'audio/wav', drv['t' + k]);
+    ids['t' + k] = drv['t' + k];
+  }
+  const mix = await renderMixBlob(await loadIdeaTracks(m));
+  if (mix) drv.mix = await upsert(base + '_mix.wav', mix, 'audio/wav', drv.mix);
+  const meta = { app: 'idea4', id: m.id, ts: m.ts, day: m.day, updatedAt: m.updatedAt, memo: m.memo, tags: m.tags, tracks: m.tracks, files: ids };
+  drv.meta = await upsert(base + '.json', new Blob([JSON.stringify(meta)], { type: 'application/json' }), 'application/json', drv.meta);
+  drv.at = m.updatedAt;
+  const saved = { ...m, drive: drv }; await dbPut('ideas', saved);
+  if (current && current.id === m.id) current = saved;
+}
+async function importIdea(meta, fileId) {
+  const m = { id: meta.id, ts: meta.ts, day: meta.day, updatedAt: meta.updatedAt, memo: meta.memo || '', tags: meta.tags || [], tracks: meta.tracks, drive: { meta: fileId, at: meta.updatedAt } };
+  for (let k = 0; k < N; k++) {
+    const fid = meta.files && meta.files['t' + k]; if (!m.tracks[k].has || !fid) { m.tracks[k] = { has: false }; continue; }
+    const ab = await (await gfetch('https://www.googleapis.com/drive/v3/files/' + fid + '?alt=media')).arrayBuffer();
+    const w = parseWav(ab);
+    await dbPut('pcm', { key: m.id + '_' + k, sr: w.sr, data: w.data.buffer });
+    m.tracks[k].sr = w.sr; m.drive['t' + k] = fid;
+  }
+  await dbPut('ideas', m);
+}
+async function sync() {
+  const btn = $('#sync'); btn.disabled = true;
+  try {
+    syncMsg('ログイン中…'); await getToken(); await ensureFolder();
+    syncMsg('ドライブの状態を確認中…');
+    const remote = await listRemote(), del = getDel(), rmap = new Map();
+    for (const f of remote) {
+      const id = (f.name.match(/^idea_(.+)\.json$/) || [])[1]; if (!id) continue;
+      if (del.includes(id)) { await gfetch('https://www.googleapis.com/drive/v3/files/' + f.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: true }) }); continue; }
+      const meta = await (await gfetch('https://www.googleapis.com/drive/v3/files/' + f.id + '?alt=media')).json();
+      if (meta && meta.app === 'idea4' && meta.id === id) rmap.set(id, { fileId: f.id, meta });
+    }
+    const local = await dbAll('ideas'), lmap = new Map(local.map(m => [m.id, m]));
+    let down = 0, up = 0;
+    for (const [id, r] of rmap) {
+      const l = lmap.get(id);
+      if (!l || r.meta.updatedAt > l.updatedAt) { syncMsg('読み込み中…（' + (down + 1) + '件目）'); await importIdea(r.meta, r.fileId); down++; }
+    }
+    for (const l of local) {
+      const r = rmap.get(l.id);
+      if (!r || l.updatedAt > r.meta.updatedAt) { syncMsg('送信中…（' + (up + 1) + '件目）'); await uploadIdea(l); up++; }
+    }
+    ls.set('del4', '[]');
+    await refresh();
+    syncMsg('同期しました。読み込み ' + down + ' 件、送信 ' + up + ' 件。');
+  } catch (e) { syncMsg(e.message || '同期できませんでした。'); }
+  btn.disabled = false;
+}
+$('#sync').addEventListener('click', sync);
+
+/* ---------- 起動 ---------- */
+label(); refresh();
 </script>
 </body>
 </html>
