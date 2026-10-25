@@ -44,6 +44,7 @@ canvas{flex:1;min-width:0;height:48px;width:100%;background:var(--bg);border-rad
 .ctl input[type=range]{width:100%;accent-color:var(--play)}
 select,input[type=number],input[type=text],input[type=search]{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;min-height:44px;width:100%;min-width:0}
 .field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--sub)}
+.field[hidden]{display:none}
 .row{display:flex;gap:8px;flex-wrap:wrap}
 .row>button{flex:1;min-width:0}
 .recbtn{border-color:var(--rec);color:var(--rec)}
@@ -129,6 +130,10 @@ details>div{padding:0 12px 12px;display:flex;flex-direction:column;gap:8px}
         <label class="field">録音に使うマイク
           <select id="mic"><option>（最初に録音ボタンを押すと表示されます）</option></select>
         </label>
+        <label class="field" id="outWrap" hidden>再生に使うスピーカー・イヤホン
+          <select id="out"></select>
+        </label>
+        <p class="note">Bluetoothイヤホンは、録音中だけマイクと通話モードでつながり、音が出ないことがあります。この版は、録音が終わるとマイクを手放して、再生では通常の接続に戻します。</p>
         <label class="field">イヤホン使用時の追加補正（ms）
           <input type="number" id="extra" step="5" min="-500" max="1000" value="250">
         </label>
@@ -229,7 +234,14 @@ const dbDel = (s, k) => tx(s, 'readwrite', o => o.delete(k));
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 
 /* ---------- 音声データ変換 ---------- */
-function mkCtx() { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }); return ctx; }
+function mkCtx() {
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+    const o = ls.get('out4', '');
+    if (o && typeof ctx.setSinkId === 'function') ctx.setSinkId(o).catch(() => {});
+  }
+  return ctx;
+}
 function toInt16(buf) {
   const d = buf.getChannelData(0), o = new Int16Array(d.length);
   for (let i = 0; i < d.length; i++) { const v = Math.max(-1, Math.min(1, d[i])); o[i] = v < 0 ? v * 32768 : v * 32767; }
@@ -397,6 +409,29 @@ async function listMics() {
     sel.appendChild(o);
   });
 }
+function releaseMic() {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  if (micSrc) { try { micSrc.disconnect(); } catch (e) {} micSrc = null; }
+}
+async function listOuts() {
+  const wrap = $('#outWrap'), sel = $('#out');
+  if (!ctx || typeof ctx.setSinkId !== 'function') { wrap.hidden = true; return; }
+  const outs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audiooutput');
+  if (outs.length < 2) { wrap.hidden = true; return; }
+  const cur = ls.get('out4', '');
+  sel.innerHTML = '';
+  outs.forEach((d, n) => {
+    const o = document.createElement('option');
+    o.value = d.deviceId; o.textContent = d.label || ('出力 ' + (n + 1));
+    if (d.deviceId === cur) o.selected = true;
+    sel.appendChild(o);
+  });
+  wrap.hidden = false;
+}
+$('#out').addEventListener('change', async e => {
+  try { await ctx.setSinkId(e.target.value); ls.set('out4', e.target.value); msg('再生先を切り替えました。'); }
+  catch (x) { msg('その再生先は使えませんでした。'); }
+});
 async function ensureMic() {
   await ensureAudio();
   if (stream) return;
@@ -407,12 +442,12 @@ async function ensureMic() {
     msg('マイクを使えませんでした。ブラウザのマイク許可と、https で開いているかを確認してください。');
     throw e;
   }
-  await listMics();
+  try { await listMics(); await listOuts(); } catch (e) {}
 }
 $('#mic').addEventListener('change', async e => {
   if (recIdx >= 0) { msg('録音中は切り替えられません。'); return; }
   try {
-    await openMic(e.target.value); savedDev = e.target.value; ls.set('mic4', savedDev);
+    await openMic(e.target.value); savedDev = e.target.value; ls.set('mic4', savedDev); releaseMic();
     msg('マイクを切り替えました。「遅延を測る」でもう一度測ると確実です。');
   } catch (x) { msg('そのマイクは使えませんでした。別のものを選んでください。'); }
 });
@@ -495,6 +530,7 @@ function stopRec() {
   stopSources(); isPlaying = false; cancelAnimationFrame(raf);
   const secs = Math.max(0, ctx.currentTime - cap.t0);
   const buf = secs > 0.2 ? toBuffer(cap, secs) : null;
+  releaseMic();
   if (buf) { tracks[i].buf = buf; tracks[i].shift = latencyMs + extraMs; tracks[i].adj = 0; }
   const row = $('#trk' + i); row.classList.remove('rec'); $('.recbtn', row).textContent = '● 録音';
   setTrackUI(i); drawWave(i); $('#time').textContent = fmt(secs);
@@ -516,6 +552,7 @@ $('#measure').addEventListener('click', async () => {
   await new Promise(r => setTimeout(r, 1700));
   const cap = capture; capture = null;
   const buf = toBuffer(cap, 1.3);
+  releaseMic();
   if (!buf) { msg('測定に失敗しました。もう一度試してください。'); return; }
   const d = buf.getChannelData(0); let mx = 0;
   for (let k = 0; k < d.length; k++) mx = Math.max(mx, Math.abs(d[k]));
